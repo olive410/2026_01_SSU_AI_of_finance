@@ -1,0 +1,12 @@
+# Claude internal files (credentials, conversation history)
+.claude/
+
+# Raw PDF data files (add your own PDFs locally)
+data_src/
+
+# Test outputs
+test_result/
+test.txt
+
+# Node.js (also in subdirectory .gitignores)
+node_modules/

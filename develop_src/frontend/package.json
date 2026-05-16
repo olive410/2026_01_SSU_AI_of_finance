@@ -1,0 +1,19 @@
+{
+  "name": "financial-ai-frontend",
+  "version": "1.0.0",
+  "description": "금융 애널리스트 리포트 기반 투자 어드바이저 프론트엔드",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "vite": "^6.0.0"
+  }
+}
