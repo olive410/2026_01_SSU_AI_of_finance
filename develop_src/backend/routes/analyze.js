@@ -4,7 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const { extractTextFromPdf } = require('../services/pdfParser');
 const { analyzeReport } = require('../services/claudeService');
-const { saveReport } = require('../services/reportService');
+const { calculateScore } = require('../services/scoreCalculator');
+const { saveReport, saveRisks } = require('../services/reportService');
 
 const DATA_SRC_PATH =
   process.env.DATA_SRC_PATH ||
@@ -34,9 +35,24 @@ router.post('/', async (req, res) => {
       try {
         const text = await extractTextFromPdf(filePath);
         const analysis = await analyzeReport(text);
-        const saved = await saveReport(file, analysis);
+
+        // §6 점수 계산 (scoreCalculator로 분리)
+        const scored = calculateScore(analysis);
+
+        const saved = await saveReport(file, {
+          ...analysis,
+          ...scored,
+          // v2 프롬프트 필드 매핑
+          opinion_analyst: analysis.opinion_analyst || null,
+        });
+
+        // §11 report_risks 정규화 테이블에 저장
+        if (saved && Array.isArray(analysis.risks)) {
+          await saveRisks(saved.id, analysis.risks);
+        }
+
         results.push({ file, success: true, data: saved });
-        console.log(`완료: ${file} → ${analysis.stock_name} (${analysis.opinion})`);
+        console.log(`완료: ${file} → ${analysis.stock_name} (${analysis.opinion_analyst}) score:${scored.score}`);
       } catch (err) {
         console.error(`실패: ${file} → ${err.message}`);
         results.push({ file, success: false, error: err.message });

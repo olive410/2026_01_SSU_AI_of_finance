@@ -40,6 +40,19 @@
             <option value="Sell">Sell</option>
           </select>
         </div>
+        <div class="filter-item">
+          <label class="filter-label">증권사</label>
+          <input v-model="filterFirm" class="input" type="text" placeholder="증권사명..." />
+        </div>
+        <div class="filter-item">
+          <label class="filter-label">최소 점수</label>
+          <select v-model="filterMinScore" class="select">
+            <option value="">전체</option>
+            <option value="1">1 이상</option>
+            <option value="0">0 이상</option>
+            <option value="-3">-3 이상</option>
+          </select>
+        </div>
         <button class="btn btn-reset" @click="resetFilters">초기화</button>
       </div>
     </div>
@@ -67,6 +80,7 @@
                   리포트 날짜 <span class="sort-icon">{{ sortIcon('report_date') }}</span>
                 </th>
                 <th>투자의견<br><span class="th-sub">(애널리스트)</span></th>
+                <th>목표가 변화</th>
                 <th @click="setSort('price_gap_pct')" class="sortable">
                   괴리율 <span class="sort-icon">{{ sortIcon('price_gap_pct') }}</span>
                 </th>
@@ -90,8 +104,13 @@
                 <td class="price">{{ formatPrice(r.target_price) }}</td>
                 <td>{{ formatDate(r.report_date) }}</td>
                 <td>
-                  <span :class="opinionClass(r.opinion)" class="badge">
-                    {{ r.opinion || '-' }}
+                  <span :class="opinionClass(r.opinion_analyst || r.opinion)" class="badge">
+                    {{ r.opinion_analyst || r.opinion || '-' }}
+                  </span>
+                </td>
+                <td>
+                  <span :class="tpChangeClass(r.target_price_change)" class="tp-change">
+                    {{ tpChangeLabel(r.target_price_change) }}
                   </span>
                 </td>
                 <td class="gap-cell">
@@ -235,6 +254,8 @@ const filterDateFrom = ref('')
 const filterDateTo = ref('')
 const filterOpinion = ref('')
 const filterAiRec = ref('')
+const filterFirm = ref('')
+const filterMinScore = ref('')
 const sortKey = ref('report_date')
 const sortDir = ref('desc')
 const selected = ref(null)
@@ -243,7 +264,9 @@ const filtered = computed(() => {
   let list = reports.value
   if (filterStock.value)   list = list.filter(r => (r.stock_name || '').includes(filterStock.value))
   if (filterOpinion.value) list = list.filter(r => r.opinion === filterOpinion.value)
-  if (filterAiRec.value)   list = list.filter(r => r.ai_recommendation === filterAiRec.value)
+  if (filterAiRec.value)    list = list.filter(r => (r.opinion_computed || r.ai_recommendation) === filterAiRec.value)
+  if (filterFirm.value)     list = list.filter(r => (r.securities_firm || '').includes(filterFirm.value))
+  if (filterMinScore.value !== '') list = list.filter(r => (r.score ?? r.final_score ?? 0) >= Number(filterMinScore.value))
   if (filterDateFrom.value) list = list.filter(r => r.report_date && r.report_date.slice(0,10) >= filterDateFrom.value)
   if (filterDateTo.value)   list = list.filter(r => r.report_date && r.report_date.slice(0,10) <= filterDateTo.value)
   return [...list].sort((a, b) => {
@@ -261,6 +284,22 @@ function resetFilters() {
   filterDateTo.value = ''
   filterOpinion.value = ''
   filterAiRec.value = ''
+  filterFirm.value = ''
+  filterMinScore.value = ''
+}
+
+function tpChangeLabel(val) {
+  if (val === 'up')   return '▲ 상향'
+  if (val === 'down') return '▼ 하향'
+  if (val === 'flat') return '— 유지'
+  return '-'
+}
+
+function tpChangeClass(val) {
+  if (val === 'up')   return 'tp-up'
+  if (val === 'down') return 'tp-down'
+  if (val === 'flat') return 'tp-flat'
+  return ''
 }
 
 function setSort(key) {
@@ -424,6 +463,10 @@ onMounted(fetchReports)
 .price { font-weight: 600; color: #1a1a2e; }
 .price-large { font-size: 20px; font-weight: 700; color: #e94560; }
 .score-cell { font-weight: 700; font-size: 15px; }
+.tp-change  { font-size: 13px; font-weight: 700; }
+.tp-up      { color: #28a745; }
+.tp-down    { color: #dc3545; }
+.tp-flat    { color: #6c757d; }
 .gap-cell   { font-weight: 700; font-size: 14px; }
 .gap-val    { font-weight: 700; }
 .text-buy   { color: #28a745; }

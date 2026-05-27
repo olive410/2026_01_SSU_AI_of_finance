@@ -2,7 +2,6 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-// Claude Code CLI 실행 파일 경로 (Claude.ai Pro 인증 공유)
 function getClaudePath() {
   const candidates = [
     path.join(process.env.APPDATA || '', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'),
@@ -18,92 +17,76 @@ function getClaudePath() {
 const CLAUDE_BIN = getClaudePath();
 console.log(`[Claude] CLI 경로: ${CLAUDE_BIN}`);
 
-// 리스크 유형별 가중치
-const RISK_WEIGHTS = { Macro: -1, Industry: -2, Company: -2 };
-// 애널리스트 의견별 점수
-const OPINION_SCORES = { Buy: 2, Hold: 0, Sell: -2 };
-
-// 괴리율 해석 기준 (Few-shot 가이드라인 — 프롬프트에도 동일하게 사용)
-const GAP_GUIDE = `[괴리율 해석 가이드]
-- 괴리율 >= 30%: 목표주가까지 상승 여력이 크며 시장 기대치가 높은 상황
-- 15% <= 괴리율 < 30%: 적정 수준의 상승 여력 보유
-- 5% <= 괴리율 < 15%: 목표주가에 근접하여 보수적 접근 권장
-- 0% < 괴리율 < 5%: 목표주가 거의 도달, 추가 상승 여력 제한적
-- 괴리율 <= 0%: 현재주가가 목표주가 초과, 하락 리스크 구간`;
-
+// §4 권장 v2 프롬프트 (PROMPT_GUIDE.md 기준)
 const SYSTEM_CONTEXT = `당신은 한국 증권사 애널리스트 리포트를 분석하는 전문 AI입니다.
-리포트 텍스트에서 아래 정보를 추출하여 반드시 JSON 객체만 반환하세요. 다른 텍스트는 포함하지 마세요.
+아래 리포트 텍스트를 읽고 핵심 정보를 추출하여 **단일 JSON 객체**만 반환하세요.
 
+# 출력 스키마 (필수)
 {
-  "stock_name": "종목명(회사명)",
-  "stock_code": "종목코드(숫자만, 예:272210)",
-  "target_price": 목표주가숫자(원단위정수, 예:169000),
-  "current_price": 현재주가숫자(리포트에 명시된 기준주가/현재가, 없으면 null),
-  "report_date": "YYYY-MM-DD 형식 날짜",
-  "opinion": "Buy 또는 Hold 또는 Sell 중 하나",
+  "stock_name": "종목명(한국어 정식 명칭)",
+  "stock_code": "6자리 종목코드 문자열 (예: \\"005930\\")",
+  "target_price": 정수(원 단위, 콤마 없음, 예: 169000),
+  "previous_target_price": 직전 목표주가 정수 또는 null,
+  "target_price_change": "up" | "flat" | "down" | null,
+  "current_price": 현재주가 정수(리포트에 명시된 기준주가/현재가, 없으면 null),
+  "report_date": "YYYY-MM-DD",
+  "opinion_analyst": "Buy" | "Hold" | "Sell",
   "author": "작성 애널리스트 이름",
   "securities_firm": "발행 증권사명",
-  "summary": "핵심 투자 포인트 2~3문장 한국어. 괴리율 정보가 있으면 상승 여력을 명시하여 투자 매력도를 표현하세요.",
-  "risk_factors": [
-    {"description": "리스크 내용 한국어", "type": "Macro 또는 Industry 또는 Company 중 하나"},
-    ...
+  "summary": "투자 포인트 2~3문장 한국어 요약. 괴리율이 계산 가능하면 상승 여력을 포함하세요.",
+  "risks": [
+    {
+      "type": "Macro" | "Industry" | "Company",
+      "sentence": "리포트에서 발췌한 원문 (50자 이내)"
+    }
   ]
 }
 
-opinion 변환: 매수/BUY/비중확대→Buy, 중립/HOLD/Neutral→Hold, 비중축소/SELL→Sell
-current_price 탐색: 리포트 상단 현재가, 기준가, 주가 등의 항목에서 추출
-risk_factors 분류 기준:
-  - Macro: 금리, 환율, 경기침체 등 시장 전체 리스크
-  - Industry: 업황 둔화, 경쟁 심화 등 산업 관련 리스크
-  - Company: 실적 감소, 비용 증가 등 기업 내부 리스크
-찾을 수 없는 항목은 null로 표기, risk_factors가 없으면 빈 배열 []
+# 위치 힌트
+- stock_name/stock_code/target_price/opinion_analyst: 리포트 첫 페이지 표지
+- author/securities_firm: 표지 또는 마지막 페이지 책임 고지
+- report_date: 표지의 발간일/작성일 (공시일 아님)
+- current_price: 표지의 현재가/기준가 항목
+- risks: 본문 전체에서 발췌 — "리스크 요인", "투자 위험", "단점", "우려" 섹션 우선
 
-${GAP_GUIDE}
-위 가이드라인을 참고하여 summary 작성 시 괴리율 맥락을 반영하세요.`;
+# 정규화 규칙
+1. target_price
+   - "16.9만원" → 169000, "169,000원" → 169000, "169천원" → 169000
+   - 범위(150,000~170,000) → 상단값 사용
+2. previous_target_price / target_price_change
+   - "TP 16.9만원 → 19만원" 패턴 발견 시: previous_target_price=169000, target_price=190000, target_price_change="up"
+   - "유지", "Maintain"이면서 직전값 명시 없음: target_price_change="flat"
+   - 명시 정보 없으면 둘 다 null
+3. opinion_analyst (대소문자 무관)
+   - 매수/BUY/비중확대/Overweight/Strong Buy → "Buy"
+   - 중립/HOLD/Neutral/Marketperform → "Hold"
+   - 매도/SELL/비중축소/Underweight/Reduce → "Sell"
+4. report_date: "2026/05/14", "2026.5.14" → "2026-05-14"
+5. stock_code: 6자리 zero-padding ("5930" → "005930")
 
-// 괴리율 계산 및 해석 (Node.js에서 확정 계산)
-function calcPriceGap(targetPrice, currentPrice) {
-  if (!targetPrice || !currentPrice || currentPrice === 0) {
-    return { price_gap_pct: null, gap_interpretation: null };
-  }
-  const gap = ((targetPrice - currentPrice) / currentPrice) * 100;
-  const gapRounded = Math.round(gap * 10) / 10;
+# 리스크 분류 기준
+- Macro: 금리, 환율, 인플레이션, 경기침체, 지정학, 원자재가, 정책/규제
+- Industry: 업황 둔화, 경쟁 심화, 기술 변화, 공급망, 산업 사이클
+- Company: 실적 부진, 비용 증가, 경영진/지배구조, 소송, 사업부 문제
 
-  let interp;
-  if (gapRounded >= 30)        interp = `목표주가까지 상승 여력 ${gapRounded}%, 시장 기대치가 높은 상황`;
-  else if (gapRounded >= 15)   interp = `적정 수준의 상승 여력 보유 (${gapRounded}%)`;
-  else if (gapRounded >= 5)    interp = `목표주가에 근접, 보수적 접근 권장 (${gapRounded}%)`;
-  else if (gapRounded > 0)     interp = `목표주가 거의 도달, 추가 상승 여력 제한적 (${gapRounded}%)`;
-  else                         interp = `현재주가가 목표주가 초과, 하락 리스크 구간 (${gapRounded}%)`;
+# 리스크 추출 규칙
+- 리스크/우려/단점/주의/위험 관련 문장만 추출, 최대 5개, 중요도 순
+- 호재/긍정 문장 제외, 동일 유형 중복 시 가장 구체적인 1개만
+- 리스크가 없으면 빈 배열 []
 
-  return { price_gap_pct: gapRounded, gap_interpretation: interp };
-}
+# 절대 금지
+- 마크다운 코드블럭(\`\`\`)으로 감싸지 마세요
+- 설명, 인사말, 접두어("분석 결과:") 금지
+- 추측 금지: 명시되지 않은 항목은 null
+- 여러 종목 비교 리포트면 표지 대표 종목 1개만
 
-// 리스크 점수 산출 (Node.js에서 계산 — 확정적 결과 보장)
-function calcScores(data) {
-  const factors = Array.isArray(data.risk_factors) ? data.risk_factors : [];
-  const riskTypes = factors.map(f => f.type).filter(t => RISK_WEIGHTS[t] !== undefined);
-  const riskScore = riskTypes.reduce((sum, t) => sum + RISK_WEIGHTS[t], 0);
-  const opinionScore = OPINION_SCORES[data.opinion] ?? 0;
-  const finalScore = opinionScore + riskScore;
-  const aiRecommendation = finalScore >= 2 ? 'Buy' : finalScore >= 0 ? 'Hold' : 'Sell';
+# 출력 예시 (Few-shot)
+{"stock_name":"한국금융지주","stock_code":"071050","target_price":365000,"previous_target_price":340000,"target_price_change":"up","current_price":295000,"report_date":"2026-05-14","opinion_analyst":"Buy","author":"조아해","securities_firm":"메리츠증권","summary":"2026년 실적 호조와 카카오뱅크 가치 재평가로 목표가 상향. 현재주가 대비 약 23.7% 상승 여력 존재. 다만 금리 인하 시 NIM 축소 가능성 있음.","risks":[{"type":"Macro","sentence":"기준금리 인하 시 순이자마진 축소 우려"},{"type":"Industry","sentence":"증권업 위탁수수료 경쟁 심화"},{"type":"Company","sentence":"부동산 PF 익스포저 관련 충당금 증가 가능"}]}`;
 
-  const { price_gap_pct, gap_interpretation } = calcPriceGap(data.target_price, data.current_price);
-
-  return {
-    risk_types: JSON.stringify(riskTypes),
-    risk_score: riskScore,
-    opinion_score: opinionScore,
-    final_score: finalScore,
-    ai_recommendation: aiRecommendation,
-    current_price: data.current_price ?? null,
-    price_gap_pct,
-    gap_interpretation,
-  };
-}
+const MAX_INPUT_CHARS = 7500;  // Few-shot 추가로 8500 → 7500 (§13.2)
 
 async function analyzeReport(pdfText) {
-  const prompt = `${SYSTEM_CONTEXT}\n\n===리포트 텍스트===\n${pdfText.slice(0, 8500)}`;
+  const prompt = `${SYSTEM_CONTEXT}\n\n===분석 대상 리포트===\n${pdfText.slice(0, MAX_INPUT_CHARS)}`;
 
   return new Promise((resolve, reject) => {
     const child = spawn(CLAUDE_BIN, ['-p', prompt], {
@@ -127,14 +110,13 @@ async function analyzeReport(pdfText) {
       if (!stdout.trim()) {
         return reject(new Error('Claude 응답 없음: ' + stderr.slice(0, 200)));
       }
-      const match = stdout.match(/\{[\s\S]*\}/);
-      if (!match) {
+      // §9/§13.3: 마지막 JSON 매칭 (Few-shot 예시 JSON 오인 방지)
+      const matches = stdout.match(/\{[\s\S]*?\}/g);
+      if (!matches) {
         return reject(new Error('JSON 없음: ' + stdout.slice(0, 300)));
       }
       try {
-        const parsed = JSON.parse(match[0]);
-        const scores = calcScores(parsed);
-        resolve({ ...parsed, ...scores });
+        resolve(JSON.parse(matches[matches.length - 1]));
       } catch (e) {
         reject(new Error('JSON 파싱 실패: ' + e.message));
       }
