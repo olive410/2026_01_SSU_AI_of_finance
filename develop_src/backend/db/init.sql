@@ -66,3 +66,23 @@ CREATE TABLE IF NOT EXISTS report_verifications (
   verified_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(report_id)
 );
+
+-- Reflection 반성 로그 테이블
+CREATE TABLE IF NOT EXISTS reflection_logs (
+  id                      SERIAL PRIMARY KEY,
+  mode                    VARCHAR(20),       -- 'preliminary' (예비) / 'verified' (검증)
+  sample_size             INTEGER,
+  overall_hit_rate        NUMERIC(5,2),
+  buy_hit_rate            NUMERIC(5,2),
+  hold_hit_rate           NUMERIC(5,2),
+  sell_hit_rate           NUMERIC(5,2),
+  avg_return_pct          NUMERIC(8,4),
+  opinion_match_rate      NUMERIC(5,2),      -- 애널리스트 vs AI 일치율
+  reflection              TEXT,
+  bias_found              TEXT,
+  adjustment_suggestions  TEXT,              -- JSON 배열
+  prompt_hint             TEXT,
+  created_at              TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reflection_logs_created ON reflection_logs(created_at DESC);

@@ -2,9 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { initDatabase } = require('./config/database');
-const reportsRouter   = require('./routes/reports');
-const analyzeRouter   = require('./routes/analyze');
-const consensusRouter = require('./routes/consensus');
+const reportsRouter    = require('./routes/reports');
+const analyzeRouter    = require('./routes/analyze');
+const consensusRouter  = require('./routes/consensus');
+const reflectionRouter = require('./routes/reflection');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,9 +13,10 @@ const PORT = process.env.PORT || 3000;
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
 
-app.use('/api/reports',   reportsRouter);
-app.use('/api/analyze',   analyzeRouter);
-app.use('/api/consensus', consensusRouter);
+app.use('/api/reports',    reportsRouter);
+app.use('/api/analyze',    analyzeRouter);
+app.use('/api/consensus',  consensusRouter);
+app.use('/api/reflection', reflectionRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
