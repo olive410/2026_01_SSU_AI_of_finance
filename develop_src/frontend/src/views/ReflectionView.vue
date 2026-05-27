@@ -2,15 +2,15 @@
   <div>
     <div class="page-header">
       <div>
-        <h1 class="page-title">AI 반성 (Reflection)</h1>
+        <h1 class="page-title">AI Reflection</h1>
         <p class="page-desc">
           AI 투자 판단 패턴을 분석하고 매수/매도 의견 산출 로직을 자기 개선합니다.
           <span class="label-note">KRX 검증 데이터 5건 이상 시 실제 수익률 기반으로 전환됩니다.</span>
         </p>
       </div>
       <button class="btn btn-primary" :disabled="running" @click="runReflection">
-        <span v-if="running"><span class="spinner"></span> 반성 실행 중...</span>
-        <span v-else>반성 실행</span>
+        <span v-if="running"><span class="spinner"></span> 반영 중...</span>
+        <span v-else>반영</span>
       </button>
     </div>
 
@@ -21,7 +21,7 @@
       <div class="result-header">
         <div>
           <span class="mode-badge" :class="latest.mode === 'verified' ? 'mode-verified' : 'mode-preliminary'">
-            {{ latest.mode === 'verified' ? 'KRX 검증 모드' : '예비 반성 모드' }}
+            {{ latest.mode === 'verified' ? 'KRX 검증 모드' : '반영 모드' }}
           </span>
           <span class="result-date">{{ formatDate(latest.created_at) }}</span>
         </div>
@@ -102,7 +102,7 @@
     <!-- 반성 이력 -->
     <div class="card">
       <div class="section-header-row">
-        <h2 class="section-title">반성 이력</h2>
+        <h2 class="section-title">반영 이력</h2>
       </div>
       <div v-if="loading" class="loading-text">로딩 중...</div>
       <div v-else-if="logs.length === 0" class="empty-text">
@@ -125,7 +125,7 @@
               <td>{{ formatDate(log.created_at) }}</td>
               <td>
                 <span class="mode-badge" :class="log.mode === 'verified' ? 'mode-verified' : 'mode-preliminary'">
-                  {{ log.mode === 'verified' ? '검증' : '예비' }}
+                  {{ log.mode === 'verified' ? '검증' : '반영' }}
                 </span>
               </td>
               <td>{{ log.sample_size }}</td>
@@ -144,7 +144,7 @@
         <div class="modal-header">
           <div>
             <span class="mode-badge" :class="selected.mode === 'verified' ? 'mode-verified' : 'mode-preliminary'">
-              {{ selected.mode === 'verified' ? 'KRX 검증' : '예비 반성' }}
+              {{ selected.mode === 'verified' ? 'KRX 검증' : '반영' }}
             </span>
             <span class="modal-date">{{ formatDate(selected.created_at) }}</span>
           </div>

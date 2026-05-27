@@ -6,6 +6,7 @@ const reportsRouter    = require('./routes/reports');
 const analyzeRouter    = require('./routes/analyze');
 const consensusRouter  = require('./routes/consensus');
 const reflectionRouter = require('./routes/reflection');
+const utilsRouter      = require('./routes/utils');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,6 +18,7 @@ app.use('/api/reports',    reportsRouter);
 app.use('/api/analyze',    analyzeRouter);
 app.use('/api/consensus',  consensusRouter);
 app.use('/api/reflection', reflectionRouter);
+app.use('/api/utils',      utilsRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

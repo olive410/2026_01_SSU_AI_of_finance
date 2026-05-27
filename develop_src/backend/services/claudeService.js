@@ -83,7 +83,30 @@ const SYSTEM_CONTEXT = `당신은 한국 증권사 애널리스트 리포트를 
 # 출력 예시 (Few-shot)
 {"stock_name":"한국금융지주","stock_code":"071050","target_price":365000,"previous_target_price":340000,"target_price_change":"up","current_price":295000,"report_date":"2026-05-14","opinion_analyst":"Buy","author":"조아해","securities_firm":"메리츠증권","summary":"2026년 실적 호조와 카카오뱅크 가치 재평가로 목표가 상향. 현재주가 대비 약 23.7% 상승 여력 존재. 다만 금리 인하 시 NIM 축소 가능성 있음.","risks":[{"type":"Macro","sentence":"기준금리 인하 시 순이자마진 축소 우려"},{"type":"Industry","sentence":"증권업 위탁수수료 경쟁 심화"},{"type":"Company","sentence":"부동산 PF 익스포저 관련 충당금 증가 가능"}]}`;
 
-const MAX_INPUT_CHARS = 7500;  // Few-shot 추가로 8500 → 7500 (§13.2)
+const MAX_INPUT_CHARS = 7500;
+
+// 중괄호 깊이 추적으로 최상위 JSON 객체를 정확히 추출
+function extractTopLevelJson(text) {
+  let depth = 0;
+  let start = -1;
+  let lastValid = null;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        try {
+          const candidate = JSON.parse(text.slice(start, i + 1));
+          lastValid = candidate;
+        } catch (_) { /* 불완전한 JSON 무시 */ }
+        start = -1;
+      }
+    }
+  }
+  return lastValid;
+}
 
 async function analyzeReport(pdfText) {
   const prompt = `${SYSTEM_CONTEXT}\n\n===분석 대상 리포트===\n${pdfText.slice(0, MAX_INPUT_CHARS)}`;
@@ -110,16 +133,12 @@ async function analyzeReport(pdfText) {
       if (!stdout.trim()) {
         return reject(new Error('Claude 응답 없음: ' + stderr.slice(0, 200)));
       }
-      // §9/§13.3: 마지막 JSON 매칭 (Few-shot 예시 JSON 오인 방지)
-      const matches = stdout.match(/\{[\s\S]*?\}/g);
-      if (!matches) {
+      // 중괄호 깊이를 추적해 최상위 JSON 객체를 추출 (non-greedy 정규식 오인 방지)
+      const parsed = extractTopLevelJson(stdout);
+      if (!parsed) {
         return reject(new Error('JSON 없음: ' + stdout.slice(0, 300)));
       }
-      try {
-        resolve(JSON.parse(matches[matches.length - 1]));
-      } catch (e) {
-        reject(new Error('JSON 파싱 실패: ' + e.message));
-      }
+      resolve(parsed);
     });
 
     child.on('error', err => {

@@ -49,19 +49,50 @@
           <h2 class="section-title">PDF 리포트 분석</h2>
           <p class="section-desc">data_src 폴더의 PDF를 분석하여 종목 정보를 추출하고 DB에 저장합니다.</p>
         </div>
-        <button class="btn btn-primary" :disabled="analyzing" @click="runAnalyze">
-          <span v-if="analyzing">
-            <span class="spinner"></span> 분석 중...
-          </span>
-          <span v-else>PDF 분석 시작</span>
-        </button>
+        <div class="btn-group">
+          <a
+            href="https://consensus.hankyung.com/analysis/list?skinType=business"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-outline"
+          >PDF 내려받기</a>
+          <button class="btn btn-outline" :disabled="moving" @click="movePdfs">
+            <span v-if="moving"><span class="spinner spinner-dark"></span> 이동 중...</span>
+            <span v-else>PDF파일 저장소로 옮기기</span>
+          </button>
+          <button class="btn btn-primary" :disabled="analyzing" @click="runAnalyze">
+            <span v-if="analyzing">
+              <span class="spinner"></span> 분석 중...
+            </span>
+            <span v-else>PDF 분석 시작</span>
+          </button>
+        </div>
       </div>
+
+      <!-- PDF 이동 결과 -->
+      <div v-if="moveResult" class="analyze-result">
+        <div class="result-summary">{{ moveResult.message }}</div>
+        <div v-if="moveResult.moved && moveResult.moved.length" class="result-list">
+          <div v-for="f in moveResult.moved" :key="f" class="result-item success">
+            <span class="result-file">{{ f }}</span>
+            <span>저장소로 이동 완료</span>
+          </div>
+        </div>
+        <div v-if="moveResult.errors && moveResult.errors.length" class="result-list">
+          <div v-for="e in moveResult.errors" :key="e.file" class="result-item fail">
+            <span class="result-file">{{ e.file }}</span>
+            <span class="text-danger">{{ e.error }}</span>
+          </div>
+        </div>
+      </div>
+      <div v-if="moveError" class="error-box">{{ moveError }}</div>
 
       <!-- 분석 결과 -->
       <div v-if="analyzeResult" class="analyze-result">
         <div class="result-summary">
-          총 {{ analyzeResult.total }}개 파일 처리 &nbsp;|&nbsp;
-          성공 <strong>{{ analyzeResult.succeeded }}</strong>개 &nbsp;|&nbsp;
+          당일 파일 {{ analyzeResult.total }}개 &nbsp;|&nbsp;
+          신규 분석 <strong>{{ analyzeResult.succeeded }}</strong>개 &nbsp;|&nbsp;
+          기분석 스킵 <span class="text-muted">{{ analyzeResult.skipped }}</span>개 &nbsp;|&nbsp;
           실패 <span class="text-danger">{{ analyzeResult.failed }}</span>개
         </div>
         <div class="result-list">
@@ -69,10 +100,11 @@
             v-for="item in analyzeResult.results"
             :key="item.file"
             class="result-item"
-            :class="item.success ? 'success' : 'fail'"
+            :class="item.skipped ? 'skip' : item.success ? 'success' : 'fail'"
           >
             <span class="result-file">{{ item.file }}</span>
-            <span v-if="item.success">
+            <span v-if="item.skipped" class="text-muted">기분석 완료 (스킵)</span>
+            <span v-else-if="item.success">
               {{ item.data.stock_name }} &middot;
               <span :class="opinionClass(item.data.opinion)" class="badge">{{ item.data.opinion }}</span>
               &middot; 목표주가 {{ formatPrice(item.data.target_price) }}
@@ -131,6 +163,9 @@ const fetchError = ref(null)
 const analyzing = ref(false)
 const analyzeResult = ref(null)
 const analyzeError = ref(null)
+const moving = ref(false)
+const moveResult = ref(null)
+const moveError = ref(null)
 
 const stats = computed(() => ({
   total: reports.value.length,
@@ -189,6 +224,22 @@ async function fetchReports() {
   }
 }
 
+async function movePdfs() {
+  const ok = confirm('다운로드 폴더의 PDF 파일을 저장소(data_src)로 이동합니다.\n계속하시겠습니까?')
+  if (!ok) return
+  moving.value = true
+  moveResult.value = null
+  moveError.value = null
+  try {
+    const res = await axios.post('/api/utils/move-pdfs')
+    moveResult.value = res.data
+  } catch (e) {
+    moveError.value = e.response?.data?.error || e.message
+  } finally {
+    moving.value = false
+  }
+}
+
 async function runAnalyze() {
   analyzing.value = true
   analyzeResult.value = null
@@ -243,6 +294,22 @@ onMounted(fetchReports)
   justify-content: space-between; gap: 16px;
   margin-bottom: 16px;
 }
+.btn-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.btn-outline {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 20px;
+  border: 1px solid #ced4da; border-radius: 8px;
+  font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+  background: #fff; color: #495057;
+  text-decoration: none;
+}
+.btn-outline:hover { background: #f8f9fa; border-color: #adb5bd; }
+.btn-outline:disabled { opacity: 0.6; cursor: not-allowed; }
+.spinner-dark {
+  border-color: rgba(0,0,0,0.2);
+  border-top-color: #495057;
+}
 .section-title { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
 .section-desc  { font-size: 13px; color: #6c757d; }
 
@@ -268,6 +335,8 @@ onMounted(fetchReports)
 .result-item:last-child { border-bottom: none; }
 .result-item.success { background: #f6ffed; }
 .result-item.fail    { background: #fff2f0; }
+.result-item.skip    { background: #f8f9fa; }
+.text-muted          { color: #adb5bd; }
 .result-file { color: #6c757d; min-width: 100px; }
 .text-danger { color: #dc3545; }
 

@@ -16,7 +16,7 @@
       <div class="nav-inner">
         <router-link to="/" class="nav-link">대시보드</router-link>
         <router-link to="/reports" class="nav-link">리포트 목록</router-link>
-        <router-link to="/reflection" class="nav-link">AI 반성</router-link>
+        <router-link to="/reflection" class="nav-link">AI Reflection</router-link>
       </div>
     </nav>
 

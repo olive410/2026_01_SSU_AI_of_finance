@@ -106,4 +106,9 @@ async function getReportById(id) {
   return result.rows[0] || null;
 }
 
-module.exports = { saveReport, saveRisks, getAllReports, getRecentReportsByStock, getReportById };
+async function getReportByFilename(filename) {
+  const result = await pool.query('SELECT id, stock_name FROM reports WHERE filename = $1', [filename]);
+  return result.rows[0] || null;
+}
+
+module.exports = { saveReport, saveRisks, getAllReports, getRecentReportsByStock, getReportById, getReportByFilename };
