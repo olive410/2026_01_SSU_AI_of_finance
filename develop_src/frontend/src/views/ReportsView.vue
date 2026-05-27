@@ -3,15 +3,44 @@
     <div class="page-header">
       <div>
         <h1 class="page-title">리포트 목록</h1>
-        <p class="page-desc">분석된 애널리스트 리포트 전체 목록입니다.</p>
+        <p class="page-desc">분석된 애널리스트 리포트 전체 목록입니다. <span class="label-note">투자의견은 애널리스트 리포트 기준입니다.</span></p>
       </div>
-      <div class="filter-group">
-        <select v-model="filterOpinion" class="select">
-          <option value="">전체 의견</option>
-          <option value="Buy">매수 (Buy)</option>
-          <option value="Hold">중립 (Hold)</option>
-          <option value="Sell">매도 (Sell)</option>
-        </select>
+    </div>
+
+    <!-- 필터 영역 -->
+    <div class="card filter-card">
+      <div class="filter-row">
+        <div class="filter-item">
+          <label class="filter-label">종목명 검색</label>
+          <input v-model="filterStock" class="input" type="text" placeholder="종목명 입력..." />
+        </div>
+        <div class="filter-item">
+          <label class="filter-label">날짜 (시작)</label>
+          <input v-model="filterDateFrom" class="input" type="date" />
+        </div>
+        <div class="filter-item">
+          <label class="filter-label">날짜 (종료)</label>
+          <input v-model="filterDateTo" class="input" type="date" />
+        </div>
+        <div class="filter-item">
+          <label class="filter-label">투자의견</label>
+          <select v-model="filterOpinion" class="select">
+            <option value="">전체</option>
+            <option value="Buy">매수 (Buy)</option>
+            <option value="Hold">중립 (Hold)</option>
+            <option value="Sell">매도 (Sell)</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <label class="filter-label">AI 추천</label>
+          <select v-model="filterAiRec" class="select">
+            <option value="">전체</option>
+            <option value="Buy">Buy</option>
+            <option value="Hold">Hold</option>
+            <option value="Sell">Sell</option>
+          </select>
+        </div>
+        <button class="btn btn-reset" @click="resetFilters">초기화</button>
       </div>
     </div>
 
@@ -37,7 +66,11 @@
                 <th @click="setSort('report_date')" class="sortable">
                   리포트 날짜 <span class="sort-icon">{{ sortIcon('report_date') }}</span>
                 </th>
-                <th>투자의견</th>
+                <th>투자의견<br><span class="th-sub">(애널리스트)</span></th>
+                <th @click="setSort('final_score')" class="sortable">
+                  최종점수 <span class="sort-icon">{{ sortIcon('final_score') }}</span>
+                </th>
+                <th>AI 추천</th>
                 <th>작성자</th>
                 <th>증권사</th>
               </tr>
@@ -57,6 +90,17 @@
                   <span :class="opinionClass(r.opinion)" class="badge">
                     {{ r.opinion || '-' }}
                   </span>
+                </td>
+                <td class="score-cell">
+                  <span :class="scoreClass(r.final_score)">
+                    {{ r.final_score != null ? (r.final_score > 0 ? '+' : '') + r.final_score : '-' }}
+                  </span>
+                </td>
+                <td>
+                  <span v-if="r.ai_recommendation" :class="opinionClass(r.ai_recommendation)" class="badge">
+                    {{ r.ai_recommendation }}
+                  </span>
+                  <span v-else class="text-muted">-</span>
                 </td>
                 <td>{{ r.author || '-' }}</td>
                 <td>{{ r.securities_firm || '-' }}</td>
@@ -80,7 +124,7 @@
         <div class="modal-body">
           <div class="detail-grid">
             <div class="detail-item">
-              <span class="detail-label">투자의견</span>
+              <span class="detail-label">투자의견 (애널리스트)</span>
               <span :class="opinionClass(selected.opinion)" class="badge">{{ selected.opinion || '-' }}</span>
             </div>
             <div class="detail-item">
@@ -104,6 +148,46 @@
               <span class="detail-val mono">{{ selected.filename }}</span>
             </div>
           </div>
+
+          <!-- 리스크 점수 섹션 -->
+          <div v-if="selected.final_score != null" class="score-section">
+            <div class="score-title">리스크 점수 분석</div>
+            <div class="score-grid">
+              <div class="score-item">
+                <span class="score-label">의견 점수</span>
+                <span class="score-val" :class="scoreClass(selected.opinion_score)">
+                  {{ selected.opinion_score > 0 ? '+' : '' }}{{ selected.opinion_score }}
+                </span>
+              </div>
+              <div class="score-item">
+                <span class="score-label">리스크 점수</span>
+                <span class="score-val text-danger">{{ selected.risk_score }}</span>
+              </div>
+              <div class="score-item">
+                <span class="score-label">최종 점수</span>
+                <span class="score-val" :class="scoreClass(selected.final_score)">
+                  {{ selected.final_score > 0 ? '+' : '' }}{{ selected.final_score }}
+                </span>
+              </div>
+              <div class="score-item">
+                <span class="score-label">AI 추천</span>
+                <span v-if="selected.ai_recommendation" :class="opinionClass(selected.ai_recommendation)" class="badge">
+                  {{ selected.ai_recommendation }}
+                </span>
+                <span v-else>-</span>
+              </div>
+            </div>
+            <div v-if="parsedRiskTypes(selected).length" class="risk-types">
+              <span class="score-label">리스크 유형:</span>
+              <span
+                v-for="(t, i) in parsedRiskTypes(selected)"
+                :key="i"
+                :class="riskTypeClass(t)"
+                class="risk-badge"
+              >{{ t }}</span>
+            </div>
+          </div>
+
           <div v-if="selected.summary" class="summary-box">
             <div class="summary-label">핵심 요약</div>
             <p class="summary-text">{{ selected.summary }}</p>
@@ -121,14 +205,22 @@ import axios from 'axios'
 const reports = ref([])
 const loading = ref(false)
 const error = ref(null)
+const filterStock = ref('')
+const filterDateFrom = ref('')
+const filterDateTo = ref('')
 const filterOpinion = ref('')
+const filterAiRec = ref('')
 const sortKey = ref('report_date')
 const sortDir = ref('desc')
 const selected = ref(null)
 
 const filtered = computed(() => {
   let list = reports.value
+  if (filterStock.value)   list = list.filter(r => (r.stock_name || '').includes(filterStock.value))
   if (filterOpinion.value) list = list.filter(r => r.opinion === filterOpinion.value)
+  if (filterAiRec.value)   list = list.filter(r => r.ai_recommendation === filterAiRec.value)
+  if (filterDateFrom.value) list = list.filter(r => r.report_date && r.report_date.slice(0,10) >= filterDateFrom.value)
+  if (filterDateTo.value)   list = list.filter(r => r.report_date && r.report_date.slice(0,10) <= filterDateTo.value)
   return [...list].sort((a, b) => {
     const av = a[sortKey.value] ?? ''
     const bv = b[sortKey.value] ?? ''
@@ -137,6 +229,14 @@ const filtered = computed(() => {
     return 0
   })
 })
+
+function resetFilters() {
+  filterStock.value = ''
+  filterDateFrom.value = ''
+  filterDateTo.value = ''
+  filterOpinion.value = ''
+  filterAiRec.value = ''
+}
 
 function setSort(key) {
   if (sortKey.value === key) {
@@ -157,6 +257,25 @@ function opinionClass(opinion) {
   if (opinion === 'Hold') return 'badge-hold'
   if (opinion === 'Sell') return 'badge-sell'
   return 'badge-null'
+}
+
+function scoreClass(score) {
+  if (score == null) return ''
+  if (score > 0) return 'text-buy'
+  if (score < 0) return 'text-sell'
+  return 'text-hold'
+}
+
+function riskTypeClass(type) {
+  if (type === 'Macro')    return 'risk-macro'
+  if (type === 'Industry') return 'risk-industry'
+  if (type === 'Company')  return 'risk-company'
+  return ''
+}
+
+function parsedRiskTypes(r) {
+  if (!r.risk_types) return []
+  try { return JSON.parse(r.risk_types) } catch { return [] }
 }
 
 function formatPrice(val) {
@@ -193,12 +312,25 @@ onMounted(fetchReports)
 .page-header {
   display: flex; align-items: flex-start;
   justify-content: space-between; gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .page-title { font-size: 22px; font-weight: 700; }
 .page-desc  { font-size: 13px; color: #6c757d; margin-top: 4px; }
+.label-note { color: #e94560; font-weight: 600; }
 
-.filter-group { display: flex; gap: 10px; align-items: center; }
+/* 필터 카드 */
+.filter-card { margin-bottom: 16px; padding: 16px 20px; }
+.filter-row  { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.filter-item { display: flex; flex-direction: column; gap: 4px; }
+.filter-label { font-size: 12px; color: #6c757d; font-weight: 600; }
+.input {
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+  width: 140px;
+}
 .select {
   padding: 8px 12px;
   border: 1px solid #ced4da;
@@ -207,6 +339,17 @@ onMounted(fetchReports)
   background: #fff;
   cursor: pointer;
 }
+.btn-reset {
+  padding: 8px 16px;
+  border: 1px solid #ced4da;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+  cursor: pointer;
+  color: #6c757d;
+  align-self: flex-end;
+}
+.btn-reset:hover { background: #f8f9fa; }
 
 .table-meta { font-size: 13px; color: #6c757d; margin-bottom: 12px; }
 .table-wrap { overflow-x: auto; }
@@ -225,6 +368,7 @@ onMounted(fetchReports)
   border-bottom: 2px solid #dee2e6;
   white-space: nowrap;
 }
+.th-sub { font-size: 11px; color: #adb5bd; font-weight: 400; }
 .table td {
   padding: 12px 14px;
   border-bottom: 1px solid #f0f2f5;
@@ -239,6 +383,12 @@ onMounted(fetchReports)
 .mono  { font-family: monospace; font-size: 13px; color: #6c757d; }
 .price { font-weight: 600; color: #1a1a2e; }
 .price-large { font-size: 20px; font-weight: 700; color: #e94560; }
+.score-cell { font-weight: 700; font-size: 15px; }
+.text-buy  { color: #28a745; }
+.text-hold { color: #ffc107; }
+.text-sell { color: #dc3545; }
+.text-danger { color: #dc3545; }
+.text-muted  { color: #adb5bd; }
 
 .loading-text, .empty-text {
   text-align: center; color: #6c757d;
@@ -264,9 +414,11 @@ onMounted(fetchReports)
 .modal {
   background: #fff;
   border-radius: 14px;
-  width: 100%; max-width: 540px;
+  width: 100%; max-width: 580px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.3);
   overflow: hidden;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 .modal-header {
   display: flex; align-items: center;
@@ -274,6 +426,7 @@ onMounted(fetchReports)
   padding: 20px 24px;
   background: #1a1a2e;
   color: #fff;
+  position: sticky; top: 0;
 }
 .modal-title  { font-size: 20px; font-weight: 700; }
 .modal-code   { font-size: 13px; color: rgba(255,255,255,0.6); }
@@ -294,6 +447,24 @@ onMounted(fetchReports)
 .detail-item { display: flex; flex-direction: column; gap: 6px; }
 .detail-label { font-size: 12px; color: #6c757d; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
 .detail-val { font-size: 15px; font-weight: 500; }
+
+/* 리스크 점수 섹션 */
+.score-section {
+  background: #f8f9fa;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.score-title { font-size: 13px; font-weight: 700; color: #495057; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.score-grid  { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
+.score-item  { display: flex; flex-direction: column; gap: 4px; }
+.score-label { font-size: 11px; color: #6c757d; font-weight: 600; }
+.score-val   { font-size: 20px; font-weight: 700; }
+.risk-types  { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.risk-badge  { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+.risk-macro    { background: #fff3cd; color: #856404; }
+.risk-industry { background: #cff4fc; color: #055160; }
+.risk-company  { background: #f8d7da; color: #842029; }
 
 .summary-box {
   background: #f8f9fa;

@@ -1,6 +1,7 @@
 <template>
   <div>
     <!-- 상단 통계 카드 -->
+    <div class="stats-section-label">애널리스트 투자의견 <span class="label-note">(리포트 원문 기준)</span></div>
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-label">전체 리포트</div>
@@ -17,6 +18,27 @@
       <div class="stat-card sell">
         <div class="stat-label">매도 (Sell)</div>
         <div class="stat-value">{{ stats.sell }}</div>
+      </div>
+    </div>
+
+    <!-- AI 리스크 점수 기반 추천 통계 -->
+    <div class="stats-section-label">AI 리스크 분석 추천 <span class="label-note">(의견점수 + 리스크점수 합산)</span></div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">분석 완료</div>
+        <div class="stat-value">{{ aiStats.analyzed }}</div>
+      </div>
+      <div class="stat-card buy">
+        <div class="stat-label">AI 매수 추천</div>
+        <div class="stat-value">{{ aiStats.buy }}</div>
+      </div>
+      <div class="stat-card hold">
+        <div class="stat-label">AI 중립</div>
+        <div class="stat-value">{{ aiStats.hold }}</div>
+      </div>
+      <div class="stat-card sell">
+        <div class="stat-label">AI 매도 추천</div>
+        <div class="stat-value">{{ aiStats.sell }}</div>
       </div>
     </div>
 
@@ -114,6 +136,16 @@ const stats = computed(() => ({
   sell: reports.value.filter(r => r.opinion === 'Sell').length,
 }))
 
+const aiStats = computed(() => {
+  const analyzed = reports.value.filter(r => r.ai_recommendation != null)
+  return {
+    analyzed: analyzed.length,
+    buy:  analyzed.filter(r => r.ai_recommendation === 'Buy').length,
+    hold: analyzed.filter(r => r.ai_recommendation === 'Hold').length,
+    sell: analyzed.filter(r => r.ai_recommendation === 'Sell').length,
+  }
+})
+
 const recentReports = computed(() => reports.value.slice(0, 6))
 
 function opinionClass(opinion) {
@@ -165,11 +197,21 @@ onMounted(fetchReports)
 </script>
 
 <style scoped>
+.stats-section-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #495057;
+  margin-bottom: 8px;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.label-note { font-size: 12px; color: #6c757d; font-weight: 400; text-transform: none; letter-spacing: 0; }
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .stat-card {
   background: #fff;
