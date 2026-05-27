@@ -67,6 +67,9 @@
                   리포트 날짜 <span class="sort-icon">{{ sortIcon('report_date') }}</span>
                 </th>
                 <th>투자의견<br><span class="th-sub">(애널리스트)</span></th>
+                <th @click="setSort('price_gap_pct')" class="sortable">
+                  괴리율 <span class="sort-icon">{{ sortIcon('price_gap_pct') }}</span>
+                </th>
                 <th @click="setSort('final_score')" class="sortable">
                   최종점수 <span class="sort-icon">{{ sortIcon('final_score') }}</span>
                 </th>
@@ -90,6 +93,12 @@
                   <span :class="opinionClass(r.opinion)" class="badge">
                     {{ r.opinion || '-' }}
                   </span>
+                </td>
+                <td class="gap-cell">
+                  <span v-if="r.price_gap_pct != null" :class="gapClass(r.price_gap_pct)" class="gap-val">
+                    {{ r.price_gap_pct > 0 ? '+' : '' }}{{ r.price_gap_pct }}%
+                  </span>
+                  <span v-else class="text-muted">-</span>
                 </td>
                 <td class="score-cell">
                   <span :class="scoreClass(r.final_score)">
@@ -132,6 +141,17 @@
               <span class="detail-val price-large">{{ formatPrice(selected.target_price) }}</span>
             </div>
             <div class="detail-item">
+              <span class="detail-label">현재주가 (리포트 기준)</span>
+              <span class="detail-val">{{ formatPrice(selected.current_price) }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">괴리율</span>
+              <span v-if="selected.price_gap_pct != null" class="detail-val" :class="gapClass(selected.price_gap_pct)">
+                {{ selected.price_gap_pct > 0 ? '+' : '' }}{{ selected.price_gap_pct }}%
+              </span>
+              <span v-else class="detail-val text-muted">-</span>
+            </div>
+            <div class="detail-item">
               <span class="detail-label">리포트 날짜</span>
               <span class="detail-val">{{ formatDate(selected.report_date) }}</span>
             </div>
@@ -147,6 +167,11 @@
               <span class="detail-label">파일명</span>
               <span class="detail-val mono">{{ selected.filename }}</span>
             </div>
+          </div>
+
+          <!-- 괴리율 해석 배너 -->
+          <div v-if="selected.gap_interpretation" class="gap-banner" :class="gapBannerClass(selected.price_gap_pct)">
+            {{ selected.gap_interpretation }}
           </div>
 
           <!-- 리스크 점수 섹션 -->
@@ -273,6 +298,21 @@ function riskTypeClass(type) {
   return ''
 }
 
+function gapClass(gap) {
+  if (gap == null) return ''
+  if (gap >= 15)  return 'text-buy'
+  if (gap >= 5)   return 'text-hold'
+  if (gap >= 0)   return 'text-muted'
+  return 'text-sell'
+}
+
+function gapBannerClass(gap) {
+  if (gap == null) return ''
+  if (gap >= 15)  return 'gap-banner-positive'
+  if (gap >= 5)   return 'gap-banner-neutral'
+  return 'gap-banner-negative'
+}
+
 function parsedRiskTypes(r) {
   if (!r.risk_types) return []
   try { return JSON.parse(r.risk_types) } catch { return [] }
@@ -384,11 +424,25 @@ onMounted(fetchReports)
 .price { font-weight: 600; color: #1a1a2e; }
 .price-large { font-size: 20px; font-weight: 700; color: #e94560; }
 .score-cell { font-weight: 700; font-size: 15px; }
-.text-buy  { color: #28a745; }
-.text-hold { color: #ffc107; }
-.text-sell { color: #dc3545; }
+.gap-cell   { font-weight: 700; font-size: 14px; }
+.gap-val    { font-weight: 700; }
+.text-buy   { color: #28a745; }
+.text-hold  { color: #e67e00; }
+.text-sell  { color: #dc3545; }
 .text-danger { color: #dc3545; }
 .text-muted  { color: #adb5bd; }
+
+/* 괴리율 해석 배너 */
+.gap-banner {
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+.gap-banner-positive { background: #d4edda; color: #155724; }
+.gap-banner-neutral  { background: #fff3cd; color: #856404; }
+.gap-banner-negative { background: #f8d7da; color: #721c24; }
 
 .loading-text, .empty-text {
   text-align: center; color: #6c757d;

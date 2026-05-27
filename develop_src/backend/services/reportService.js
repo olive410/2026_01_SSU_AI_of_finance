@@ -5,14 +5,16 @@ async function saveReport(filename, data) {
     stock_name, stock_code, target_price, report_date,
     opinion, author, securities_firm, summary,
     risk_types, risk_score, opinion_score, final_score, ai_recommendation,
+    current_price, price_gap_pct, gap_interpretation,
   } = data;
 
   const query = `
     INSERT INTO reports
       (filename, stock_name, stock_code, target_price, report_date,
        opinion, author, securities_firm, summary,
-       risk_types, risk_score, opinion_score, final_score, ai_recommendation)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       risk_types, risk_score, opinion_score, final_score, ai_recommendation,
+       current_price, price_gap_pct, gap_interpretation)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     ON CONFLICT (filename) DO UPDATE SET
       stock_name        = EXCLUDED.stock_name,
       stock_code        = EXCLUDED.stock_code,
@@ -26,7 +28,10 @@ async function saveReport(filename, data) {
       risk_score        = EXCLUDED.risk_score,
       opinion_score     = EXCLUDED.opinion_score,
       final_score       = EXCLUDED.final_score,
-      ai_recommendation = EXCLUDED.ai_recommendation
+      ai_recommendation = EXCLUDED.ai_recommendation,
+      current_price     = EXCLUDED.current_price,
+      price_gap_pct     = EXCLUDED.price_gap_pct,
+      gap_interpretation = EXCLUDED.gap_interpretation
     RETURNING *
   `;
 
@@ -34,6 +39,7 @@ async function saveReport(filename, data) {
     filename, stock_name, stock_code, target_price, report_date,
     opinion, author, securities_firm, summary,
     risk_types, risk_score, opinion_score, final_score, ai_recommendation,
+    current_price, price_gap_pct, gap_interpretation,
   ]);
   return result.rows[0];
 }

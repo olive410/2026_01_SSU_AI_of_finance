@@ -105,6 +105,9 @@
           </div>
           <div class="target-price">
             목표주가 <strong>{{ formatPrice(r.target_price) }}</strong>
+            <span v-if="r.price_gap_pct != null" :class="gapClass(r.price_gap_pct)" class="gap-chip">
+              {{ r.price_gap_pct > 0 ? '+' : '' }}{{ r.price_gap_pct }}%
+            </span>
           </div>
           <div class="report-meta">
             <span>{{ r.author || '-' }}</span>
@@ -153,6 +156,14 @@ function opinionClass(opinion) {
   if (opinion === 'Hold') return 'badge-hold'
   if (opinion === 'Sell') return 'badge-sell'
   return 'badge-null'
+}
+
+function gapClass(gap) {
+  if (gap == null) return ''
+  if (gap >= 15)  return 'gap-positive'
+  if (gap >= 5)   return 'gap-neutral'
+  if (gap >= 0)   return 'gap-low'
+  return 'gap-negative'
 }
 
 function formatPrice(val) {
@@ -301,8 +312,13 @@ onMounted(fetchReports)
   margin-bottom: 8px;
 }
 .stock-name { font-size: 15px; font-weight: 700; }
-.target-price { font-size: 13px; color: #495057; margin-bottom: 8px; }
+.target-price { font-size: 13px; color: #495057; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .target-price strong { color: #1a1a2e; }
+.gap-chip { font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 10px; }
+.gap-positive { background: #d4edda; color: #155724; }
+.gap-neutral  { background: #fff3cd; color: #856404; }
+.gap-low      { background: #e9ecef; color: #495057; }
+.gap-negative { background: #f8d7da; color: #721c24; }
 .report-meta {
   display: flex; gap: 8px; flex-wrap: wrap;
   font-size: 12px; color: #6c757d;
