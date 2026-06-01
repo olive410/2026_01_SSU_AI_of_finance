@@ -1,11 +1,21 @@
 const express = require('express');
 const router = express.Router();
-const { getAllReports, getReportById } = require('../services/reportService');
+const { getAllReports, getReportById, getReportsByStockCode } = require('../services/reportService');
 
 router.get('/', async (req, res) => {
   try {
     const reports = await getAllReports();
     res.json({ success: true, data: reports });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 종목코드별 전체 리포트 — /:id 보다 먼저 선언
+router.get('/stock/:code', async (req, res) => {
+  try {
+    const data = await getReportsByStockCode(req.params.code);
+    res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

@@ -99,7 +99,15 @@
                 class="table-row"
                 @click="openDetail(r)"
               >
-                <td class="bold">{{ r.stock_name || '-' }}</td>
+                <td class="bold">
+                  <span class="stock-name-text">{{ r.stock_name || '-' }}</span>
+                  <button
+                    v-if="r.stock_code"
+                    class="chart-btn"
+                    title="목표주가 추이 차트"
+                    @click.stop="openChart(r.stock_code, r.stock_name)"
+                  >📈</button>
+                </td>
                 <td class="mono">{{ r.stock_code || '-' }}</td>
                 <td class="price">{{ formatPrice(r.target_price) }}</td>
                 <td>{{ formatDate(r.report_date) }}</td>
@@ -139,7 +147,7 @@
       </div>
     </div>
 
-    <!-- 상세 모달 -->
+    <!-- 리포트 상세 모달 -->
     <div v-if="selected" class="modal-backdrop" @click.self="selected = null">
       <div class="modal">
         <div class="modal-header">
@@ -236,6 +244,86 @@
             <div class="summary-label">핵심 요약</div>
             <p class="summary-text">{{ selected.summary }}</p>
           </div>
+
+          <!-- 원문 PDF 뷰어 -->
+          <div class="pdf-section">
+            <button class="btn-pdf-toggle" @click="showPdf = !showPdf">
+              {{ showPdf ? '▲ 원문 PDF 닫기' : '▼ 원문 PDF 보기' }}
+            </button>
+            <div v-if="showPdf" class="pdf-viewer">
+              <iframe
+                :src="`/api/pdf/${selected.filename}`"
+                class="pdf-iframe"
+                title="원문 리포트 PDF"
+              ></iframe>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 목표주가 추이 차트 모달 -->
+    <div v-if="chartStock" class="modal-backdrop" @click.self="closeChart">
+      <div class="modal chart-modal">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title">{{ chartStock.name }}</h2>
+            <span class="modal-code">({{ chartStock.code }}) 목표주가 추이</span>
+          </div>
+          <button class="modal-close" @click="closeChart">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="chartLoading" class="loading-text">차트 로딩 중...</div>
+          <div v-else-if="chartError" class="error-box">{{ chartError }}</div>
+          <div v-else-if="chartData.length === 0" class="empty-text">데이터가 없습니다.</div>
+          <template v-else>
+            <!-- 요약 통계 -->
+            <div class="chart-stats">
+              <div class="chart-stat-box">
+                <div class="chart-stat-label">최신 목표주가</div>
+                <div class="chart-stat-val">{{ formatPrice(chartStats.latestTarget) }}</div>
+              </div>
+              <div class="chart-stat-box">
+                <div class="chart-stat-label">현재주가</div>
+                <div class="chart-stat-val">{{ chartStats.currentPrice ? formatPrice(chartStats.currentPrice) : '-' }}</div>
+              </div>
+              <div class="chart-stat-box">
+                <div class="chart-stat-label">평균 괴리율</div>
+                <div class="chart-stat-val" :class="chartStats.avgGap > 0 ? 'text-buy' : chartStats.avgGap < 0 ? 'text-sell' : ''">
+                  {{ chartStats.avgGap != null ? (chartStats.avgGap > 0 ? '+' : '') + chartStats.avgGap + '%' : '-' }}
+                </div>
+              </div>
+            </div>
+
+            <!-- 범례 -->
+            <div class="chart-legend">
+              <span class="legend-item"><span class="legend-line blue"></span>목표주가</span>
+              <span class="legend-item"><span class="legend-line dashed"></span>현재주가</span>
+              <span class="legend-item"><span class="legend-dot buy-dot"></span>Buy</span>
+              <span class="legend-item"><span class="legend-dot hold-dot"></span>Hold</span>
+              <span class="legend-item"><span class="legend-dot sell-dot"></span>Sell</span>
+            </div>
+
+            <!-- 차트 -->
+            <div class="chart-wrap">
+              <canvas ref="chartCanvasRef" role="img" aria-label="목표주가 추이 차트"></canvas>
+            </div>
+
+            <!-- 리포트 목록 -->
+            <div class="chart-report-list">
+              <div class="chart-report-header">리포트 목록</div>
+              <div
+                v-for="r in chartReports"
+                :key="r.id"
+                class="chart-report-row"
+              >
+                <span class="cr-date">{{ formatDate(r.report_date) }}</span>
+                <span class="cr-firm">{{ r.securities_firm || '-' }} · {{ r.author || '-' }}</span>
+                <span class="cr-price">{{ formatPrice(r.target_price) }}</span>
+                <span :class="opinionClass(r.opinion)" class="badge cr-badge">{{ r.opinion || '-' }}</span>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -243,8 +331,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import axios from 'axios'
+import Chart from 'chart.js/auto'
 
 const reports = ref([])
 const loading = ref(false)
@@ -259,6 +348,15 @@ const filterMinScore = ref('')
 const sortKey = ref('report_date')
 const sortDir = ref('desc')
 const selected = ref(null)
+const showPdf = ref(false)
+
+// 차트 상태
+const chartStock = ref(null)
+const chartData = ref([])
+const chartLoading = ref(false)
+const chartError = ref(null)
+const chartCanvasRef = ref(null)
+let chartInstance = null
 
 const filtered = computed(() => {
   let list = reports.value
@@ -277,6 +375,126 @@ const filtered = computed(() => {
     return 0
   })
 })
+
+// 차트용 리포트(날짜순 오름차순, 유효 데이터만)
+const chartReports = computed(() =>
+  [...chartData.value]
+    .filter(r => r.target_price && r.report_date)
+    .sort((a, b) => (a.report_date > b.report_date ? 1 : -1))
+)
+
+const chartStats = computed(() => {
+  const rs = chartReports.value
+  if (rs.length === 0) return { latestTarget: null, currentPrice: null, avgGap: null }
+  const latest = rs[rs.length - 1]
+  const avgTarget = rs.reduce((s, r) => s + Number(r.target_price), 0) / rs.length
+  const cur = Number(latest.current_price)
+  const avgGap = cur > 0 ? ((avgTarget - cur) / cur * 100).toFixed(1) : null
+  return {
+    latestTarget: Number(latest.target_price),
+    currentPrice: cur || null,
+    avgGap: avgGap != null ? Number(avgGap) : null,
+  }
+})
+
+// 모달 변경 시 PDF 뷰어 초기화
+watch(selected, () => { showPdf.value = false })
+
+async function openChart(code, name) {
+  chartStock.value = { code, name }
+  chartData.value = []
+  chartLoading.value = true
+  chartError.value = null
+  try {
+    const res = await axios.get(`/api/reports/stock/${code}`)
+    chartData.value = res.data.data || []
+    await nextTick()
+    renderChart()
+  } catch (e) {
+    chartError.value = e.response?.data?.error || e.message
+  } finally {
+    chartLoading.value = false
+  }
+}
+
+function renderChart() {
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null }
+  const canvas = chartCanvasRef.value
+  const rs = chartReports.value
+  if (!canvas || rs.length === 0) return
+
+  const OPINION_COLOR = { Buy: '#1D9E75', Hold: '#BA7517', Sell: '#E24B4A' }
+  const labels   = rs.map(r => r.report_date.slice(0, 10).slice(5))
+  const targets  = rs.map(r => Number(r.target_price))
+  const curPrice = chartStats.value.currentPrice
+
+  chartInstance = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '목표주가',
+          data: targets,
+          borderColor: '#378ADD',
+          backgroundColor: 'rgba(55,138,221,0.08)',
+          borderWidth: 2,
+          pointBackgroundColor: rs.map(r => OPINION_COLOR[r.opinion] || '#888'),
+          pointBorderColor:     rs.map(r => OPINION_COLOR[r.opinion] || '#888'),
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          fill: true,
+          tension: 0.3,
+        },
+        ...(curPrice ? [{
+          label: '현재주가',
+          data: new Array(labels.length).fill(curPrice),
+          borderColor: '#888780',
+          borderWidth: 1.5,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+        }] : []),
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              if (ctx.datasetIndex === 0) {
+                const r = rs[ctx.dataIndex]
+                return [
+                  `목표주가: ${Number(ctx.raw).toLocaleString('ko-KR')}원`,
+                  `${r.securities_firm || '-'} · ${r.author || '-'} · ${r.opinion || '-'}`,
+                ]
+              }
+              return `현재주가: ${Number(ctx.raw).toLocaleString('ko-KR')}원`
+            },
+          },
+        },
+      },
+      scales: {
+        y: {
+          ticks: { callback: v => (v / 10000).toFixed(0) + '만', font: { size: 12 } },
+          grid: { color: 'rgba(136,135,128,0.15)' },
+        },
+        x: {
+          ticks: { font: { size: 12 }, autoSkip: false },
+          grid: { display: false },
+        },
+      },
+    },
+  })
+}
+
+function closeChart() {
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null }
+  chartStock.value = null
+}
 
 function resetFilters() {
   filterStock.value = ''
@@ -403,56 +621,29 @@ onMounted(fetchReports)
 .filter-item { display: flex; flex-direction: column; gap: 4px; }
 .filter-label { font-size: 12px; color: #6c757d; font-weight: 600; }
 .input {
-  padding: 8px 12px;
-  border: 1px solid #ced4da;
-  border-radius: 8px;
-  font-size: 14px;
-  background: #fff;
-  width: 140px;
+  padding: 8px 12px; border: 1px solid #ced4da;
+  border-radius: 8px; font-size: 14px; background: #fff; width: 140px;
 }
 .select {
-  padding: 8px 12px;
-  border: 1px solid #ced4da;
-  border-radius: 8px;
-  font-size: 14px;
-  background: #fff;
-  cursor: pointer;
+  padding: 8px 12px; border: 1px solid #ced4da;
+  border-radius: 8px; font-size: 14px; background: #fff; cursor: pointer;
 }
 .btn-reset {
-  padding: 8px 16px;
-  border: 1px solid #ced4da;
-  border-radius: 8px;
-  font-size: 14px;
-  background: #fff;
-  cursor: pointer;
-  color: #6c757d;
-  align-self: flex-end;
+  padding: 8px 16px; border: 1px solid #ced4da; border-radius: 8px;
+  font-size: 14px; background: #fff; cursor: pointer; color: #6c757d; align-self: flex-end;
 }
 .btn-reset:hover { background: #f8f9fa; }
 
 .table-meta { font-size: 13px; color: #6c757d; margin-bottom: 12px; }
 .table-wrap { overflow-x: auto; }
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th {
-  background: #f8f9fa;
-  padding: 11px 14px;
-  text-align: left;
-  font-weight: 600;
-  font-size: 13px;
-  color: #495057;
-  border-bottom: 2px solid #dee2e6;
-  white-space: nowrap;
+  background: #f8f9fa; padding: 11px 14px; text-align: left;
+  font-weight: 600; font-size: 13px; color: #495057;
+  border-bottom: 2px solid #dee2e6; white-space: nowrap;
 }
 .th-sub { font-size: 11px; color: #adb5bd; font-weight: 400; }
-.table td {
-  padding: 12px 14px;
-  border-bottom: 1px solid #f0f2f5;
-  vertical-align: middle;
-}
+.table td { padding: 12px 14px; border-bottom: 1px solid #f0f2f5; vertical-align: middle; }
 .sortable { cursor: pointer; user-select: none; }
 .sortable:hover { background: #e9ecef; }
 .sort-icon { font-size: 11px; color: #adb5bd; }
@@ -464,94 +655,70 @@ onMounted(fetchReports)
 .price-large { font-size: 20px; font-weight: 700; color: #e94560; }
 .score-cell { font-weight: 700; font-size: 15px; }
 .tp-change  { font-size: 13px; font-weight: 700; }
-.tp-up      { color: #28a745; }
-.tp-down    { color: #dc3545; }
-.tp-flat    { color: #6c757d; }
-.gap-cell   { font-weight: 700; font-size: 14px; }
-.gap-val    { font-weight: 700; }
-.text-buy   { color: #28a745; }
-.text-hold  { color: #e67e00; }
-.text-sell  { color: #dc3545; }
+.tp-up   { color: #28a745; }
+.tp-down { color: #dc3545; }
+.tp-flat { color: #6c757d; }
+.gap-cell  { font-weight: 700; font-size: 14px; }
+.gap-val   { font-weight: 700; }
+.text-buy  { color: #28a745; }
+.text-hold { color: #e67e00; }
+.text-sell { color: #dc3545; }
 .text-danger { color: #dc3545; }
 .text-muted  { color: #adb5bd; }
 
-/* 괴리율 해석 배너 */
-.gap-banner {
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 16px;
+/* 차트 버튼 */
+.stock-name-text { margin-right: 6px; }
+.chart-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 14px; padding: 2px 4px; border-radius: 4px;
+  opacity: 0.6; transition: opacity 0.15s;
+  vertical-align: middle;
 }
+.chart-btn:hover { opacity: 1; background: #f0f2f5; }
+
+/* 괴리율 해석 배너 */
+.gap-banner { border-radius: 8px; padding: 10px 14px; font-size: 13px; font-weight: 600; margin-bottom: 16px; }
 .gap-banner-positive { background: #d4edda; color: #155724; }
 .gap-banner-neutral  { background: #fff3cd; color: #856404; }
 .gap-banner-negative { background: #f8d7da; color: #721c24; }
 
 .loading-text, .empty-text {
-  text-align: center; color: #6c757d;
-  padding: 40px 0; font-size: 14px;
+  text-align: center; color: #6c757d; padding: 40px 0; font-size: 14px;
 }
 .error-box {
-  background: #fff2f0;
-  border: 1px solid #ffa39e;
-  border-radius: 8px;
-  padding: 12px 16px;
-  color: #cf1322;
-  font-size: 13px;
+  background: #fff2f0; border: 1px solid #ffa39e;
+  border-radius: 8px; padding: 12px 16px; color: #cf1322; font-size: 13px;
 }
 
-/* 모달 */
+/* 모달 공통 */
 .modal-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.45);
+  position: fixed; inset: 0; background: rgba(0,0,0,0.45);
   display: flex; align-items: center; justify-content: center;
-  z-index: 1000;
-  padding: 20px;
+  z-index: 1000; padding: 20px;
 }
 .modal {
-  background: #fff;
-  border-radius: 14px;
+  background: #fff; border-radius: 14px;
   width: 100%; max-width: 580px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-  overflow: hidden;
-  max-height: 90vh;
-  overflow-y: auto;
+  overflow: hidden; max-height: 90vh; overflow-y: auto;
 }
 .modal-header {
-  display: flex; align-items: center;
-  justify-content: space-between;
-  padding: 20px 24px;
-  background: #1a1a2e;
-  color: #fff;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 24px; background: #1a1a2e; color: #fff;
   position: sticky; top: 0;
 }
 .modal-title  { font-size: 20px; font-weight: 700; }
 .modal-code   { font-size: 13px; color: rgba(255,255,255,0.6); }
-.modal-close  {
-  background: none; border: none;
-  color: rgba(255,255,255,0.7);
-  font-size: 24px; cursor: pointer; line-height: 1;
-}
+.modal-close  { background: none; border: none; color: rgba(255,255,255,0.7); font-size: 24px; cursor: pointer; line-height: 1; }
 .modal-close:hover { color: #fff; }
 .modal-body { padding: 24px; }
 
-.detail-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 20px;
-}
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
 .detail-item { display: flex; flex-direction: column; gap: 6px; }
 .detail-label { font-size: 12px; color: #6c757d; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-.detail-val { font-size: 15px; font-weight: 500; }
+.detail-val   { font-size: 15px; font-weight: 500; }
 
-/* 리스크 점수 섹션 */
-.score-section {
-  background: #f8f9fa;
-  border-radius: 10px;
-  padding: 16px;
-  margin-bottom: 16px;
-}
+.score-section { background: #f8f9fa; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
 .score-title { font-size: 13px; font-weight: 700; color: #495057; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
 .score-grid  { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
 .score-item  { display: flex; flex-direction: column; gap: 4px; }
@@ -563,11 +730,59 @@ onMounted(fetchReports)
 .risk-industry { background: #cff4fc; color: #055160; }
 .risk-company  { background: #f8d7da; color: #842029; }
 
-.summary-box {
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 16px;
-}
+.summary-box { background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
 .summary-label { font-size: 12px; color: #6c757d; font-weight: 600; margin-bottom: 8px; text-transform: uppercase; }
 .summary-text  { font-size: 14px; line-height: 1.7; color: #495057; }
+
+/* PDF 뷰어 */
+.pdf-section { margin-top: 8px; }
+.btn-pdf-toggle {
+  width: 100%; padding: 10px 16px; text-align: left;
+  background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px;
+  font-size: 14px; font-weight: 600; color: #495057; cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-pdf-toggle:hover { background: #e9ecef; }
+.pdf-viewer { margin-top: 12px; border-radius: 8px; overflow: hidden; border: 1px solid #dee2e6; }
+.pdf-iframe { display: block; width: 100%; height: 520px; border: none; }
+
+/* 차트 모달 */
+.chart-modal { max-width: 720px; }
+
+.chart-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;
+}
+.chart-stat-box {
+  background: #f8f9fa; border-radius: 10px; padding: 14px;
+}
+.chart-stat-label { font-size: 12px; color: #6c757d; font-weight: 600; margin-bottom: 4px; }
+.chart-stat-val   { font-size: 20px; font-weight: 700; color: #1a1a2e; }
+
+.chart-legend {
+  display: flex; gap: 16px; font-size: 12px; color: #6c757d;
+  margin-bottom: 12px; flex-wrap: wrap;
+}
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-line { width: 20px; height: 2px; display: inline-block; border-radius: 2px; }
+.legend-line.blue   { background: #378ADD; }
+.legend-line.dashed { border-top: 2px dashed #888780; background: transparent; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.buy-dot  { background: #1D9E75; }
+.hold-dot { background: #BA7517; }
+.sell-dot { background: #E24B4A; }
+
+.chart-wrap { position: relative; width: 100%; height: 280px; margin-bottom: 24px; }
+
+/* 차트 하단 리포트 목록 */
+.chart-report-list { border-top: 1px solid #dee2e6; padding-top: 12px; }
+.chart-report-header { font-size: 12px; color: #6c757d; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.chart-report-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0; border-bottom: 1px solid #f0f2f5; font-size: 13px;
+}
+.chart-report-row:last-child { border-bottom: none; }
+.cr-date  { color: #6c757d; min-width: 55px; }
+.cr-firm  { flex: 1; color: #495057; }
+.cr-price { font-weight: 600; color: #1a1a2e; white-space: nowrap; }
+.cr-badge { flex-shrink: 0; }
 </style>

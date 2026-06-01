@@ -106,9 +106,22 @@ async function getReportById(id) {
   return result.rows[0] || null;
 }
 
+async function getReportsByStockCode(stockCode) {
+  const result = await pool.query(
+    `SELECT id, stock_name, stock_code, target_price, current_price, report_date,
+     COALESCE(opinion_analyst, opinion) AS opinion,
+     author, securities_firm, price_gap_pct, filename
+     FROM reports
+     WHERE stock_code = $1
+     ORDER BY report_date ASC NULLS LAST, created_at ASC`,
+    [stockCode]
+  );
+  return result.rows;
+}
+
 async function getReportByFilename(filename) {
   const result = await pool.query('SELECT id, stock_name FROM reports WHERE filename = $1', [filename]);
   return result.rows[0] || null;
 }
 
-module.exports = { saveReport, saveRisks, getAllReports, getRecentReportsByStock, getReportById, getReportByFilename };
+module.exports = { saveReport, saveRisks, getAllReports, getRecentReportsByStock, getReportById, getReportByFilename, getReportsByStockCode };
