@@ -8,13 +8,90 @@
           <span class="label-note">KRX 검증 데이터 5건 이상 시 실제 수익률 기반으로 전환됩니다.</span>
         </p>
       </div>
-      <button class="btn btn-primary" :disabled="running" @click="runReflection">
-        <span v-if="running"><span class="spinner"></span> 반영 중...</span>
-        <span v-else>반영</span>
-      </button>
+      <div class="btn-group">
+        <button class="btn btn-outline-dark" :disabled="verifying" @click="runVerification">
+          <span v-if="verifying"><span class="spinner spinner-dark"></span> 검증 중...</span>
+          <span v-else>KRX D+5 검증</span>
+        </button>
+        <button class="btn btn-primary" :disabled="running" @click="runReflection">
+          <span v-if="running"><span class="spinner"></span> 반영 중...</span>
+          <span v-else>반영</span>
+        </button>
+      </div>
     </div>
 
     <div v-if="runError" class="error-box mb-16">{{ runError }}</div>
+    <div v-if="verifyError" class="error-box mb-16">{{ verifyError }}</div>
+
+    <!-- KRX 검증 현황 -->
+    <div class="card mb-16 verify-card">
+      <div class="verify-header">
+        <span class="verify-title">KRX D+5 성능 지표</span>
+        <span class="verify-sub">AI 추천일 기준 5 영업일 후 종가로 적중 여부 산출</span>
+      </div>
+      <div v-if="verifyStats" class="verify-grid">
+        <div class="verify-stat">
+          <div class="verify-label">검증 완료</div>
+          <div class="verify-val">{{ verifyStats.total_verified }}건</div>
+        </div>
+        <div class="verify-stat">
+          <div class="verify-label">전체 적중률</div>
+          <div class="verify-val" :class="rateClass(verifyStats.overall_hit_rate)">
+            {{ verifyStats.overall_hit_rate != null ? verifyStats.overall_hit_rate + '%' : '-' }}
+          </div>
+        </div>
+        <div class="verify-stat buy">
+          <div class="verify-label">Buy 적중률</div>
+          <div class="verify-val">{{ verifyStats.buy_hit_rate != null ? verifyStats.buy_hit_rate + '%' : '-' }}</div>
+        </div>
+        <div class="verify-stat hold">
+          <div class="verify-label">Hold 적중률</div>
+          <div class="verify-val">{{ verifyStats.hold_hit_rate != null ? verifyStats.hold_hit_rate + '%' : '-' }}</div>
+        </div>
+        <div class="verify-stat sell">
+          <div class="verify-label">Sell 적중률</div>
+          <div class="verify-val">{{ verifyStats.sell_hit_rate != null ? verifyStats.sell_hit_rate + '%' : '-' }}</div>
+        </div>
+        <div class="verify-stat">
+          <div class="verify-label">평균 수익률 (D+5)</div>
+          <div class="verify-val" :class="verifyStats.avg_return_pct > 0 ? 'text-buy' : verifyStats.avg_return_pct < 0 ? 'text-sell' : ''">
+            {{ verifyStats.avg_return_pct != null ? (verifyStats.avg_return_pct > 0 ? '+' : '') + verifyStats.avg_return_pct + '%' : '-' }}
+          </div>
+        </div>
+      </div>
+      <div v-else class="verify-empty">검증 데이터가 없습니다. KRX D+5 검증을 실행하세요.</div>
+
+      <!-- 검증 실행 결과 -->
+      <div v-if="verifyResult" class="verify-result">
+        <div class="verify-result-summary">
+          처리 {{ verifyResult.processed }}건 &nbsp;|&nbsp;
+          성공 <strong>{{ verifyResult.succeeded }}</strong>건 &nbsp;|&nbsp;
+          실패 <span class="text-danger">{{ verifyResult.failed }}</span>건
+        </div>
+        <div v-if="verifyResult.details && verifyResult.details.length" class="verify-detail-list">
+          <div
+            v-for="d in verifyResult.details"
+            :key="d.id"
+            class="verify-detail-row"
+            :class="d.success ? (d.hit ? 'row-hit' : 'row-miss') : 'row-error'"
+          >
+            <span class="vd-stock">{{ d.stock_name || '-' }}</span>
+            <span class="vd-date">{{ d.report_date }}</span>
+            <span class="vd-d5">D+5: {{ d.d5_date || '-' }}</span>
+            <span class="vd-return" v-if="d.return_pct != null" :class="d.return_pct > 0 ? 'text-buy' : 'text-sell'">
+              {{ d.return_pct > 0 ? '+' : '' }}{{ d.return_pct }}%
+            </span>
+            <span class="vd-return text-muted" v-else>-</span>
+            <span class="vd-hit" v-if="d.success">
+              <span v-if="d.hit === true"  class="hit-badge hit">적중</span>
+              <span v-else-if="d.hit === false" class="hit-badge miss">미적중</span>
+              <span v-else class="hit-badge pending">데이터 없음</span>
+            </span>
+            <span class="vd-error text-danger" v-else>{{ d.error }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- 최근 반성 결과 -->
     <div v-if="latest" class="card mb-16">
@@ -188,6 +265,37 @@ const running = ref(false)
 const runError = ref(null)
 const selected = ref(null)
 
+// KRX 검증
+const verifying = ref(false)
+const verifyResult = ref(null)
+const verifyError = ref(null)
+const verifyStats = ref(null)
+
+async function fetchVerifyStats() {
+  try {
+    const res = await axios.get('/api/verify/status')
+    const d = res.data.data
+    verifyStats.value = d?.total_verified > 0 ? d : null
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+async function runVerification() {
+  verifying.value = true
+  verifyResult.value = null
+  verifyError.value = null
+  try {
+    const res = await axios.post('/api/verify/run')
+    verifyResult.value = res.data.data
+    await fetchVerifyStats()
+  } catch (e) {
+    verifyError.value = e.response?.data?.error || e.message
+  } finally {
+    verifying.value = false
+  }
+}
+
 async function fetchLogs() {
   loading.value = true
   try {
@@ -242,7 +350,7 @@ function rateClass(rate) {
   return 'text-sell'
 }
 
-onMounted(fetchLogs)
+onMounted(() => { fetchLogs(); fetchVerifyStats(); })
 </script>
 
 <style scoped>
@@ -251,6 +359,58 @@ onMounted(fetchLogs)
   justify-content: space-between; gap: 16px;
   margin-bottom: 20px;
 }
+.btn-group { display: flex; gap: 8px; align-items: center; }
+.btn-outline-dark {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 20px; border: 1px solid #ced4da; border-radius: 8px;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  background: #fff; color: #495057; transition: all 0.2s;
+}
+.btn-outline-dark:hover:not(:disabled) { background: #f8f9fa; border-color: #adb5bd; }
+.btn-outline-dark:disabled { opacity: 0.6; cursor: not-allowed; }
+.spinner-dark { border-color: rgba(0,0,0,0.2); border-top-color: #495057; }
+
+/* KRX 검증 카드 */
+.verify-card { margin-bottom: 16px; }
+.verify-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+.verify-title { font-size: 16px; font-weight: 700; color: #1a1a2e; }
+.verify-sub   { font-size: 12px; color: #6c757d; }
+.verify-grid  { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+.verify-stat  {
+  background: #f8f9fa; border-radius: 10px; padding: 14px;
+  border-left: 4px solid #ced4da;
+}
+.verify-stat.buy  { border-left-color: #28a745; }
+.verify-stat.hold { border-left-color: #ffc107; }
+.verify-stat.sell { border-left-color: #dc3545; }
+.verify-label { font-size: 12px; color: #6c757d; font-weight: 600; margin-bottom: 4px; }
+.verify-val   { font-size: 22px; font-weight: 700; color: #1a1a2e; }
+.verify-empty { font-size: 13px; color: #6c757d; text-align: center; padding: 20px 0; }
+
+/* 검증 결과 목록 */
+.verify-result { margin-top: 16px; border-top: 1px solid #dee2e6; padding-top: 12px; }
+.verify-result-summary { font-size: 13px; color: #495057; margin-bottom: 10px; }
+.verify-detail-list { display: flex; flex-direction: column; gap: 4px; }
+.verify-detail-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 6px;
+  font-size: 13px;
+}
+.row-hit   { background: #f6ffed; }
+.row-miss  { background: #fff2f0; }
+.row-error { background: #f8f9fa; }
+.vd-stock { font-weight: 600; min-width: 80px; }
+.vd-date  { color: #6c757d; min-width: 80px; }
+.vd-d5    { color: #6c757d; min-width: 90px; }
+.vd-return { font-weight: 700; min-width: 60px; }
+.hit-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+.hit-badge.hit     { background: #d4edda; color: #155724; }
+.hit-badge.miss    { background: #f8d7da; color: #721c24; }
+.hit-badge.pending { background: #e9ecef; color: #6c757d; }
+.text-buy  { color: #28a745; }
+.text-sell { color: #dc3545; }
+.text-muted { color: #adb5bd; }
+.text-danger { color: #dc3545; }
 .page-title { font-size: 22px; font-weight: 700; }
 .page-desc  { font-size: 13px; color: #6c757d; margin-top: 4px; }
 .label-note { color: #e94560; font-weight: 600; }

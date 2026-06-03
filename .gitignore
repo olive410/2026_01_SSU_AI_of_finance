@@ -1,5 +1,7 @@
 # Claude internal files (credentials, conversation history)
-.claude/
+.claude/projects/
+.claude/todos/
+.claude/settings.local.json
 
 # Raw PDF data files (add your own PDFs locally)
 data_src/
@@ -10,3 +12,6 @@ test.txt
 
 # Node.js (also in subdirectory .gitignores)
 node_modules/
+
+# 로컬 환경 변수 (실제 키 값 보호 — .env.example 참조)
+develop_src/backend/.env
